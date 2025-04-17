@@ -1,0 +1,49 @@
+name: Gitleaks Secret Scan
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks-scan:
+    name: Run Gitleaks on Codebase
+    runs-on: ubuntu-latest  # or 'self-hosted' if using your own runner
+    steps:
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download and Run Gitleaks
+        continue-on-error: true
+        run: |
+          echo "📦 Fetching latest Gitleaks release..."
+          curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest > release.json
+
+          LATEST_TAR_URL=$(grep "browser_download_url" release.json | grep "Linux_x86_64.tar.gz" | cut -d '"' -f 4)
+
+          if [ -z "$LATEST_TAR_URL" ]; then
+            echo "❌ Could not find Linux_x86_64 Gitleaks release."
+            cat release.json
+            exit 1
+          fi
+
+          echo "✅ Downloading from $LATEST_TAR_URL"
+          curl -sSL "$LATEST_TAR_URL" -o gitleaks.tar.gz
+          mkdir gitleaks-bin && tar -xzf gitleaks.tar.gz -C gitleaks-bin
+          chmod +x gitleaks-bin/gitleaks
+
+          echo "🔍 Running scan..."
+          ./gitleaks-bin/gitleaks detect --source . \
+            --report-path=gitleaks-report.json \
+            --no-git --redact || echo "🔸 Secrets may have been found."
+
+      - name: Upload Gitleaks Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-report
+          path: gitleaks-report.json
